@@ -1,3 +1,387 @@
+BUILD GUIDE - TeaSpeak Voice Server v1.6.0
+==========================================
+
+1. VOICE SERVER LOCATION AND PROJECT LAYOUT
+-------------------------------------------
+Voice server source: Server/Server/server/
+
+Server/
+├── Root/                    Build and setup scripts
+│   ├── build_teaspeak.sh    Main build script
+│   ├── setup_amd64.md       Ubuntu/Debian instructions
+│   ├── ubuntu_setup_env.sh
+│   └── libraries/           Required libraries
+├── Server/                  TeaSpeak project
+│   ├── server/              VoiceServer
+│   ├── license/             Licensing system
+│   ├── MusicBot/            Music bot
+│   ├── file/                File server
+│   └── shared/              Shared code
+├── rtc/                     WebRTC
+└── teafile/                 File system
+
+2. OPERATING SYSTEM AND ARCHITECTURES
+-------------------------------------
+Original documented OS: Ubuntu 14.04 LTS (Trusty Tahr)
+Documentation: Root/setup_amd64.md
+
+The original guide also lists Ubuntu 16.04, 18.04, 20.04, 22.04,
+Debian 8 through 12, and WSL2 Ubuntu. Those compatibility claims have
+not been verified; older releases and packages may require adjustments.
+
+Architecture values used by the build scripts:
+  amd64  = x86_64 (Intel/AMD 64-bit)
+  arm64  = ARM 64-bit
+  armv7  = ARM 32-bit
+
+The commands below target amd64 Ubuntu/Debian.
+
+STEP 1: INSTALL DEPENDENCIES
+----------------------------
+1.1 Update package lists and installed packages
+
+    sudo apt-get update
+    sudo apt-get upgrade -y
+
+1.2 Basic build tools and development libraries
+
+    sudo apt-get install -y \
+        autoconf automake build-essential cmake curl gettext git \
+        libcurl4-openssl-dev libssl-dev libpcre3-dev libncurses-dev \
+        libsqlite3-dev libjemalloc-dev libtool realpath wget nano \
+        software-properties-common unzip gcc g++ golang-go \
+        default-libmysqlclient-dev
+
+Note: Package names and availability differ by distribution and release.
+The obsolete python-software-properties package and redundant
+libmysqlclient-dev entry have been removed from the combined command.
+
+1.3 GCC 9 or newer
+
+    gcc --version
+    g++ --version
+
+If the installed compiler is too old, install an available supported
+compiler for your distribution. For systems that provide gcc-9 and g++-9:
+
+    sudo apt-get install -y gcc-9 g++-9
+
+Optional: select GCC 9 explicitly, without changing the system-wide default:
+
+    export CC=gcc-9
+    export CXX=g++-9
+
+The old guide used the ubuntu-toolchain-r/test PPA and changed gcc, g++,
+cc, and c++ system-wide. Those commands are intentionally omitted here
+because they are not generally applicable to all listed OS versions.
+
+1.4 CMake 3.16 or newer
+
+    cmake --version
+
+On distributions offering a sufficiently recent version:
+
+    sudo apt-get install -y cmake
+
+Optional source installation of the version named by the original guide:
+
+    cd /tmp
+    wget https://github.com/Kitware/CMake/releases/download/v3.16.3/cmake-3.16.3.tar.gz
+    tar xvf cmake-3.16.3.tar.gz
+    cd cmake-3.16.3
+    ./bootstrap --parallel=4
+    make -j4
+    sudo make install
+    cmake --version
+
+1.5 Git
+
+    git --version
+
+The normal package installation above includes Git. The old instructions
+to compile Git 2.25.0 are unnecessary unless a particular version is
+required by the project.
+
+1.6 Go
+
+    go version
+
+The normal package installation above includes golang-go. If the project
+requires a different Go version, install that specific version separately.
+The original alternative was Go 1.19 for linux-amd64.
+
+1.7 Patchelf (if required by the build)
+
+    sudo apt-get install -y patchelf
+
+1.8 Protocol Buffers (Protobuf)
+
+First try distribution packages:
+
+    sudo apt-get install -y protobuf-compiler libprotobuf-dev
+    protoc --version
+
+The original guide built Protobuf from the current, unpinned Git default
+branch. Doing so could select an incompatible version. Use the project's
+specified version if a source build is required.
+
+1.9 SQLite3 (if needed)
+
+The development library is included in step 1.2. If command-line SQLite
+is needed:
+
+    sudo apt-get install -y sqlite3
+
+1.10 MySQL client libraries
+
+The default-libmysqlclient-dev package is included in step 1.2.
+The original alternative attempted to compile the entire MySQL server
+just to obtain client libraries, and included inconsistent CMake paths;
+it has been omitted.
+
+1.11 Jemalloc
+
+The libjemalloc-dev package is included in step 1.2.
+
+STEP 2: CLONE THE PROJECT
+-------------------------
+    mkdir -p ~/teaspeak-build
+    cd ~/teaspeak-build
+    git clone https://git.did.science/WolverinDEV/TeaSpeak-Parent.git server
+    cd server
+    git submodule update --init --recursive
+
+If you cannot access the repository, use the source code you already have.
+The original command used --remote, which advances submodules to their
+remote branches rather than checking out the revisions recorded by the
+parent project. This guide uses the recorded revisions instead.
+
+STEP 3: CONFIGURE VERSION 1.6.0
+--------------------------------
+File: ~/teaspeak-build/server/Server/server/CMakeLists.txt
+
+Original version fields:
+
+    SET(CPACK_PACKAGE_VERSION_MAJOR "1")
+    SET(CPACK_PACKAGE_VERSION_MINOR "5")
+    SET(CPACK_PACKAGE_VERSION_PATCH "6")
+
+Target version fields:
+
+    SET(CPACK_PACKAGE_VERSION_MAJOR "1")
+    SET(CPACK_PACKAGE_VERSION_MINOR "6")
+    SET(CPACK_PACKAGE_VERSION_PATCH "0")
+
+Edit and check the file:
+
+    cd ~/teaspeak-build/server/Server/server
+    cp CMakeLists.txt CMakeLists.txt.backup
+    sed -i 's/SET(CPACK_PACKAGE_VERSION_MINOR "5")/SET(CPACK_PACKAGE_VERSION_MINOR "6")/' CMakeLists.txt
+    sed -i 's/SET(CPACK_PACKAGE_VERSION_PATCH "6")/SET(CPACK_PACKAGE_VERSION_PATCH "0")/' CMakeLists.txt
+    grep 'CPACK_PACKAGE_VERSION' CMakeLists.txt
+
+NOTE: Changing packaging version variables does not necessarily change
+runtime version strings or implement changes introduced in TeaSpeak 1.6.0.
+
+STEP 4: CONFIGURE BUILD ENVIRONMENT
+------------------------------------
+    cd ~/teaspeak-build/server/Root
+    export build_os_type=linux
+    export build_os_arch=amd64
+    export CMAKE_MAKE_OPTIONS="-j$(nproc)"
+    export MAKE_OPTIONS="$CMAKE_MAKE_OPTIONS"
+
+Optional optimization flags (only if consumed by the build scripts):
+
+    export CXX_FLAGS="-O3 -march=native"
+
+STEP 5: BUILD REQUIRED LIBRARIES
+---------------------------------
+    cd ~/teaspeak-build/server/Root
+    ./libraries/build.sh
+
+Libraries identified by the original guide:
+  libevent, ed25519, jsoncpp, opus, protobuf, spdlog,
+  StringVariable, ThreadPool, tomcrypt/tommath, yaml-cpp,
+  zstd, breakpad, DataPipes, CXXTerminal.
+
+STEP 6: BUILD TEASPEAK SERVER
+------------------------------
+Release (production):
+
+    cd ~/teaspeak-build/server/Root
+    ./build_teaspeak.sh stable
+
+Debug (development):
+
+    cd ~/teaspeak-build/server/Root
+    export i_really_wanna_debug=1
+    ./build_teaspeak.sh debug
+
+Other build modes listed by the original guide:
+
+    ./build_teaspeak.sh nightly
+    ./build_teaspeak.sh optimized
+
+STEP 7: VERIFY THE BUILD
+-------------------------
+7.1 Locate generated files
+
+    cd ~/teaspeak-build/server/Server/server/environment
+    ls -lh
+
+Files listed by the original guide (depending on build configuration):
+  TeaSpeakServer       Main server executable
+  libTeaFile.so        File library
+  ProviderFFMpeg.so   FFmpeg provider
+  ProviderYT.so       YouTube provider
+
+7.2 Inspect the version
+
+    ./TeaSpeakServer --version
+
+The original guide expected a line similar to:
+
+    TeaSpeak-Server v1.6.0 [Build: 1699999999]
+
+The build ID above is only the original guide's example, not a verified value.
+
+7.3 Quick launch test
+
+    mkdir -p ~/.config/TeaSpeak
+    cd ~/.config/TeaSpeak
+    ~/teaspeak-build/server/Server/server/environment/TeaSpeakServer
+
+The original guide notes that startup might stop if a required license
+is missing. Actual behavior depends on the built version and configuration.
+
+TROUBLESHOOTING
+---------------
+Cannot find MySQL:
+
+    sudo apt-get install -y default-libmysqlclient-dev
+
+CMake version too old:
+
+    cmake --version
+
+Install CMake 3.16 or newer using the package manager, or use the
+source-build instructions in step 1.4.
+
+Protobuf not found:
+
+    protoc --version
+    sudo ldconfig
+
+Check whether the build requires a specific Protobuf version or library path.
+
+Cannot find libevent:
+
+    cd ~/teaspeak-build/server/Root/libraries
+    ./build.sh
+
+Build is too slow or consumes too much memory:
+
+    export CMAKE_MAKE_OPTIONS="-j2"
+    export MAKE_OPTIONS="-j2"
+
+Source directory does not contain CMakeLists.txt:
+
+The original guide suggests these symlinks, but verify the actual
+repository layout before creating them:
+
+    cd ~/teaspeak-build/server/Root
+    ln -s ../Server TeaSpeak
+    ln -s ../../rtc TeaSpeak/rtclib
+
+Checks:
+
+    ls -la TeaSpeak/CMakeLists.txt
+    ls -la TeaSpeak/rtclib/generate_shared_library.sh
+
+The symlink locations in the original guide were inconsistent. These
+commands assume Root/TeaSpeak links to ../Server and the rtc directory
+is a sibling of Server/ in the repository root. Do not use the symlinks
+if those source paths already exist or the project expects another layout.
+
+OPTIONAL: ALL-IN-ONE BUILD SCRIPT
+---------------------------------
+Save as compile_teaspeak_1.6.0.sh after obtaining the source repository.
+This follows steps 1, 3, 4, 5, and 6. It uses the available system GCC,
+CMake and Protobuf versions; requirements must be checked beforehand.
+
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO_DIR="$HOME/teaspeak-build/server"
+echo '[1/6] Installing dependencies...'
+sudo apt-get update
+sudo apt-get install -y \
+    build-essential cmake gcc g++ git wget \
+    libcurl4-openssl-dev libssl-dev libpcre3-dev libncurses-dev \
+    libsqlite3-dev libjemalloc-dev golang-go autoconf automake \
+    libtool default-libmysqlclient-dev protobuf-compiler libprotobuf-dev
+
+echo '[2/6] Checking source directory...'
+cd "$REPO_DIR"
+
+echo '[3/6] Setting packaging version to 1.6.0...'
+cd Server/server
+cp -n CMakeLists.txt CMakeLists.txt.backup || true
+sed -i 's/SET(CPACK_PACKAGE_VERSION_MINOR "5")/SET(CPACK_PACKAGE_VERSION_MINOR "6")/' CMakeLists.txt
+sed -i 's/SET(CPACK_PACKAGE_VERSION_PATCH "6")/SET(CPACK_PACKAGE_VERSION_PATCH "0")/' CMakeLists.txt
+
+echo '[4/6] Setting build variables...'
+cd "$REPO_DIR/Root"
+export build_os_type=linux
+export build_os_arch=amd64
+export CMAKE_MAKE_OPTIONS="-j$(nproc)"
+export MAKE_OPTIONS="$CMAKE_MAKE_OPTIONS"
+
+echo '[5/6] Building libraries...'
+./libraries/build.sh
+
+echo '[6/6] Building TeaSpeak Server...'
+./build_teaspeak.sh stable
+
+BINARY="$REPO_DIR/Server/server/environment/TeaSpeakServer"
+if [[ -f "$BINARY" ]]; then
+    echo "Build completed: $BINARY"
+    "$BINARY" --version
+else
+    echo 'Build failed: TeaSpeakServer executable was not found.' >&2
+    exit 1
+fi
+
+Run the saved script with:
+
+    chmod +x compile_teaspeak_1.6.0.sh
+    ./compile_teaspeak_1.6.0.sh
+
+ADDITIONAL INFORMATION
+----------------------
+Original guide's approximate figures (not verified):
+  Source code:           ~500 MB
+  Built dependencies:    ~2 GB
+  Final binary:          ~50 MB
+  4-core CPU:            ~45-60 minutes
+  8-core CPU:            ~25-35 minutes
+  16-core CPU:           ~15-20 minutes
+
+Server components described by the original guide:
+
+TeaSpeakServer
+├── VoiceServer
+├── QueryServer
+├── WebServer
+├── LicenseService
+└── FileServer
+
+END OF GUIDE
+
+--------------
+
+ESPANOL:
 GUÍA DE COMPILACIÓN - Servidor de Voz TeaSpeak
 v1.6.0
 RESPUESTA 1: Carpeta del Servidor de Voz
